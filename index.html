@@ -23,7 +23,7 @@
   }
 
   /* ═══ SLIDES ═══ */
-  .slide {
+  .slide, .intro-slide {
     position: absolute; inset: 0;
     opacity: 0;
     transition: opacity 2s ease-in-out;
@@ -32,8 +32,44 @@
     z-index: 1;
     will-change: opacity;
   }
-  .slide.active { opacity: 1; pointer-events: auto; z-index: 2; }
-  .slide.prev { opacity: 0; z-index: 1; transition: opacity 2.5s ease-in-out; }
+  .slide.active, .intro-slide.active { opacity: 1; pointer-events: auto; z-index: 2; }
+  .slide.prev, .intro-slide.prev { opacity: 0; z-index: 1; transition: opacity 2.5s ease-in-out; }
+
+  /* ═══ INTRO SLIDE ═══ */
+  .intro-slide {
+    display: flex; align-items: center; justify-content: center;
+    flex-direction: column; gap: 2.5vh;
+    transition: opacity 1.5s ease-in-out;
+  }
+  .intro-bg {
+    position: absolute; inset: 0;
+    background: radial-gradient(ellipse at center, #1a0d00 0%, #0a0a0a 70%);
+  }
+  .intro-glow {
+    position: absolute;
+    width: 50vmax; height: 50vmax;
+    border-radius: 50%;
+    opacity: 0.15;
+    background: radial-gradient(circle, #f36d21, transparent 70%);
+  }
+  .intro-logo {
+    position: relative; z-index: 2;
+    height: min(8vw, 12vh);
+    object-fit: contain;
+  }
+  .intro-label {
+    position: relative; z-index: 2;
+    font-size: min(1.8vw, 2.8vh);
+    font-weight: 500;
+    letter-spacing: 0.3em;
+    text-transform: uppercase;
+    opacity: 0.5;
+  }
+  .intro-line {
+    position: relative; z-index: 2;
+    height: 2px; width: min(12vw, 150px);
+    background: #f36d21;
+  }
 
   /* ═══ NEWS SLIDE DESIGN ═══ */
   .news-bg-full {
@@ -101,7 +137,6 @@
     font-weight: 400;
   }
 
-  /* ── NOS accent ── */
   .nos-accent .source-logo { filter: none; }
   .nos-accent::before {
     content: ''; position: absolute; bottom: 0; left: 0;
@@ -143,6 +178,15 @@
 </div>
 
 <div id="wrapper">
+  <!-- NOS INTRO -->
+  <div class="intro-slide" id="intro-nos" data-duration="5000" data-intro="true">
+    <div class="intro-bg"></div>
+    <div class="intro-glow"></div>
+    <img class="intro-logo" src="https://static.cdnlogo.com/logos/n/78/nos.svg" alt="NOS">
+    <div class="intro-line"></div>
+    <span class="intro-label">Headlines</span>
+  </div>
+
   <!-- NOS 1 -->
   <div class="slide nos-accent" id="nos-0" data-duration="15000">
     <img class="news-bg-full" id="nos-img-0" src="" alt="">
@@ -175,7 +219,6 @@
 </div>
 
 <script>
-// ═══ TIME AGO ═══
 function timeAgo(d) {
   const s = Math.floor((Date.now() - new Date(d).getTime()) / 1000);
   if (s < 60) return 'Zojuist';
@@ -184,7 +227,6 @@ function timeAgo(d) {
   return Math.floor(s / 86400) + ' dag(en) geleden';
 }
 
-// ═══ NEWS ═══
 const PH = 'data:image/svg+xml,' + encodeURIComponent(
   '<svg xmlns="http://www.w3.org/2000/svg" width="1920" height="1080"><rect fill="#111" width="1920" height="1080"/></svg>'
 );
@@ -218,7 +260,6 @@ async function fetchRSS(url) {
     const items = parseRSSItems(xml);
     if (items.length) return items;
   } catch (e) { console.warn('corsproxy failed:', e.message); }
-
   try {
     const resp = await fetch('https://api.rss2json.com/v1/api.json?count=10&rss_url=' + encodeURIComponent(url));
     if (!resp.ok) throw new Error('HTTP ' + resp.status);
@@ -227,16 +268,11 @@ async function fetchRSS(url) {
       return data.items.map(item => {
         const tmp = document.createElement('div');
         tmp.innerHTML = item.description;
-        return {
-          title: item.title,
-          description: tmp.textContent || '',
-          pubDate: item.pubDate,
-          image: item.thumbnail || item.enclosure?.link || (() => { const m = item.description?.match(/<img[^>]+src="([^"]+)"/); return m ? m[1] : ''; })()
-        };
+        return { title: item.title, description: tmp.textContent || '', pubDate: item.pubDate,
+          image: item.thumbnail || item.enclosure?.link || (() => { const m = item.description?.match(/<img[^>]+src="([^"]+)"/); return m ? m[1] : ''; })() };
       });
     }
   } catch (e) { console.warn('rss2json failed:', e.message); }
-
   return [];
 }
 
@@ -252,18 +288,15 @@ async function fetchNews(url, pre, n) {
       if (desc) desc.textContent = item.description;
       if (img) img.src = item.image || PH;
     });
-  } catch (e) { console.warn('News err (' + pre + '):', e); }
+  } catch (e) { console.warn('News err:', e); }
 }
 
-// ═══ AUTO-SCROLL ═══
 function startScroll(slideEl) {
   const area = slideEl.querySelector('.news-desc-area');
   if (!area) return;
   const p = area.querySelector('p');
   if (!p) return;
-  p.style.transition = 'none';
-  p.style.transform = 'translateY(0)';
-  void p.offsetHeight;
+  p.style.transition = 'none'; p.style.transform = 'translateY(0)'; void p.offsetHeight;
   const ov = p.scrollHeight - area.clientHeight;
   if (ov > 10) {
     setTimeout(() => {
@@ -273,51 +306,48 @@ function startScroll(slideEl) {
   }
 }
 
-// ═══ PRELOAD IMAGE ═══
 function preloadImage(src) {
   return new Promise(resolve => {
     if (!src || src === PH) return resolve();
     const img = new Image();
-    img.onload = resolve;
-    img.onerror = resolve;
-    img.src = src;
+    img.onload = resolve; img.onerror = resolve; img.src = src;
     setTimeout(resolve, 8000);
   });
 }
 
 // ═══ SLIDESHOW ═══
-const slides = document.querySelectorAll('.slide');
+const allSlides = [
+  document.getElementById('intro-nos'),
+  document.getElementById('nos-0'),
+  document.getElementById('nos-1')
+];
 let cur = 0, timer = null;
 
 function activateSlide(i) {
-  const next = slides[i];
+  const next = allSlides[i];
   next.classList.add('active');
   cur = i;
-
   const newBg = next.querySelector('.news-bg-full');
   if (newBg) {
-    newBg.style.transition = 'none';
-    newBg.style.transform = 'scale(1)';
+    newBg.style.transition = 'none'; newBg.style.transform = 'scale(1)';
     requestAnimationFrame(() => requestAnimationFrame(() => {
       newBg.style.transition = 'transform 12s ease-out';
       newBg.style.transform = 'scale(1.08)';
     }));
   }
-
-  startScroll(next);
-
+  if (!next.dataset.intro) startScroll(next);
   const ago = next.querySelector('.news-ago');
   if (ago?.dataset.pubdate) ago.textContent = timeAgo(ago.dataset.pubdate);
-
   const dur = parseInt(next.dataset.duration) || 15000;
   clearTimeout(timer);
-  timer = setTimeout(() => showSlide((cur + 1) % slides.length), dur);
+  if (i < allSlides.length - 1) {
+    timer = setTimeout(() => showSlide(i + 1), dur);
+  }
 }
 
 function deactivateSlide(i) {
-  const s = slides[i];
-  s.classList.remove('active');
-  s.classList.add('prev');
+  const s = allSlides[i];
+  s.classList.remove('active'); s.classList.add('prev');
   setTimeout(() => {
     s.classList.remove('prev');
     const bg = s.querySelector('.news-bg-full');
@@ -325,10 +355,7 @@ function deactivateSlide(i) {
   }, 2600);
 }
 
-function showSlide(i) {
-  deactivateSlide(cur);
-  activateSlide(i);
-}
+function showSlide(i) { deactivateSlide(cur); activateSlide(i); }
 
 // ═══ INIT ═══
 const loadingScreen = document.getElementById('loading-screen');
@@ -336,21 +363,15 @@ const loadingScreen = document.getElementById('loading-screen');
 async function initSignage() {
   await fetchNews('https://feeds.nos.nl/nosnieuwsalgemeen', 'nos', 2);
   document.getElementById('ll').classList.add('loaded');
-
-  const imgPromises = Array.from(document.querySelectorAll('.news-bg-full')).map(img =>
-    preloadImage(img.src)
-  );
+  const imgPromises = Array.from(document.querySelectorAll('.news-bg-full')).map(img => preloadImage(img.src));
   await Promise.all(imgPromises);
-
   loadingScreen.classList.add('fade-out');
   await new Promise(r => setTimeout(r, 800));
   loadingScreen.style.display = 'none';
-
   activateSlide(0);
 }
 
 initSignage();
-setInterval(() => fetchNews('https://feeds.nos.nl/nosnieuwsalgemeen', 'nos', 2), 60000);
 </script>
 </body>
 </html>
