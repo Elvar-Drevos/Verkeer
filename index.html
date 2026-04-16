@@ -406,10 +406,11 @@
   // CORS staat alleen rwsverkeersinfo.nl toe, dus via CORS-proxy met fallback.
   const TARGET = 'https://api.rwsverkeersinfo.nl/api/traffic/';
   const PROXIES = [
-    u => 'https://api.allorigins.win/raw?url=' + encodeURIComponent(u),
     u => 'https://api.codetabs.com/v1/proxy/?quest=' + u,
+    u => 'https://api.allorigins.win/raw?url=' + encodeURIComponent(u),
     u => 'https://corsproxy.io/?url=' + encodeURIComponent(u)
   ];
+  const FETCH_TIMEOUT_MS = 8000;
   const MAX_ITEMS = 10;
   const REFRESH_MS = 5 * 60 * 1000;
 
@@ -562,19 +563,24 @@
     elWorksList.innerHTML = items;
   }
 
+  async function fetchOne(url, signal) {
+    const res = await fetch(url, { cache: 'no-store', signal });
+    if (!res.ok) throw new Error('HTTP ' + res.status);
+    return await res.json();
+  }
+
   async function fetchViaProxies() {
-    let lastErr = null;
-    for (const makeUrl of PROXIES) {
-      try {
-        const res = await fetch(makeUrl(TARGET), { cache: 'no-store' });
-        if (!res.ok) throw new Error('HTTP ' + res.status);
-        return await res.json();
-      } catch (err) {
-        lastErr = err;
-        console.warn('Proxy faalde, probeer volgende:', err);
-      }
+    // Race alle proxies parallel: de snelste response wint, rest wordt afgebroken.
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), FETCH_TIMEOUT_MS);
+    try {
+      const attempts = PROXIES.map(makeUrl => fetchOne(makeUrl(TARGET), controller.signal));
+      const data = await Promise.any(attempts);
+      controller.abort();  // cancel losers
+      return data;
+    } finally {
+      clearTimeout(timeout);
     }
-    throw lastErr || new Error('Alle proxies faalden');
   }
 
   async function fetchData() {
