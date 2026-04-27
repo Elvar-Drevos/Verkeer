@@ -61,6 +61,34 @@
     color: rgba(255,255,255,0.55);
     font-weight: 400;
   }
+  .header-left .status-timer {
+    margin-top: 6px;
+    font-size: 14px;
+    font-weight: 500;
+    color: rgba(255,255,255,0.75);
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    padding: 4px 12px;
+    border-radius: 999px;
+    background: rgba(255,255,255,0.06);
+  }
+  .header-left .status-timer .pulse {
+    width: 8px;
+    height: 8px;
+    border-radius: 50%;
+    background: #2ecc71;
+    box-shadow: 0 0 8px rgba(46,204,113,0.7);
+  }
+  .header-left .status-timer.has-files .pulse {
+    background: #e74c3c;
+    box-shadow: 0 0 8px rgba(231,76,60,0.7);
+    animation: timerPulse 1.6s ease-in-out infinite;
+  }
+  @keyframes timerPulse {
+    0%, 100% { opacity: 1; transform: scale(1); }
+    50%      { opacity: 0.55; transform: scale(0.85); }
+  }
   .header-right {
     display: flex;
     gap: 32px;
@@ -338,6 +366,9 @@
     <div class="header-left">
       <h1>Verkeersinformatie Nederland</h1>
       <div class="subtitle">Laatst bijgewerkt: <span class="update-time" id="updateTime">—</span></div>
+      <div class="status-timer" id="statusTimer" style="visibility:hidden">
+        <span class="pulse"></span><span id="statusTimerText">—</span>
+      </div>
     </div>
     <div class="header-right">
       <div class="stat red">
@@ -454,6 +485,13 @@
   const elUpdate = document.getElementById('updateTime');
   const elNeedle = document.getElementById('gaugeNeedle');
   const elLevel = document.getElementById('gaugeLevel');
+  const elTimer = document.getElementById('statusTimer');
+  const elTimerText = document.getElementById('statusTimerText');
+
+  // Bijhouden hoe lang de huidige toestand (wel/geen files) al duurt.
+  // Reset bij elke transitie. Begint te tellen vanaf paginalading.
+  let stateStart = null;       // ms-tijdstip waarop de huidige toestand begon
+  let stateHasFiles = null;    // null = nog onbekend, true/false = huidige status
 
   function escapeHtml(s) {
     if (s == null) return '';
@@ -499,6 +537,42 @@
     if (score < 0.45) return { text: 'Normaal',     level: 2 };
     if (score < 0.75) return { text: 'Druk',        level: 3 };
     return                   { text: 'Zeer druk',   level: 4 };
+  }
+
+  function formatDuration(ms) {
+    const totalMin = Math.floor(ms / 60000);
+    if (totalMin < 1) return 'minder dan 1 minuut';
+    if (totalMin === 1) return '1 minuut';
+    if (totalMin < 60) return totalMin + ' minuten';
+    const h = Math.floor(totalMin / 60);
+    const m = totalMin % 60;
+    if (m === 0) return h === 1 ? '1 uur' : h + ' uur';
+    return h + 'u ' + m + 'm';
+  }
+
+  function renderTimer() {
+    if (stateHasFiles === null || stateStart === null) {
+      elTimer.style.visibility = 'hidden';
+      return;
+    }
+    elTimer.style.visibility = 'visible';
+    const dur = formatDuration(Date.now() - stateStart);
+    if (stateHasFiles) {
+      elTimer.classList.add('has-files');
+      elTimerText.textContent = 'Al ' + dur + ' files';
+    } else {
+      elTimer.classList.remove('has-files');
+      elTimerText.textContent = 'Al ' + dur + ' geen files';
+    }
+  }
+
+  function updateStateTimer(fileCount) {
+    const hasFiles = fileCount > 0;
+    if (stateHasFiles !== hasFiles) {
+      stateHasFiles = hasFiles;
+      stateStart = Date.now();
+    }
+    renderTimer();
   }
 
   function updateGauge(fileCount, totalKm) {
@@ -654,6 +728,7 @@
       elStatKm.textContent = totalKm.toFixed(0);
       elStatWorks.textContent = allWorks.length;
       updateGauge(allFiles.length, totalKm);
+      updateStateTimer(allFiles.length);
       elFilesCount.textContent = allFiles.length > MAX_ITEMS ? `Top ${MAX_ITEMS} van ${allFiles.length}` : `${allFiles.length}`;
       elWorksCount.textContent = allWorks.length > MAX_ITEMS ? `Top ${MAX_ITEMS} van ${allWorks.length}` : `${allWorks.length}`;
       elUpdate.textContent = fmtTime(new Date().toISOString());
@@ -668,6 +743,8 @@
 
   fetchData();
   setInterval(fetchData, REFRESH_MS);
+  // Timer-tekst elke 30s verversen zodat de "X minuten" ook tussen API-calls door bijwerkt
+  setInterval(renderTimer, 30 * 1000);
 })();
 </script>
 </body>
