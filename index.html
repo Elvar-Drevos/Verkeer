@@ -493,11 +493,50 @@
   const elTimer = document.getElementById('statusTimer');
   const elTimerText = document.getElementById('statusTimerText');
 
-  // Hoe lang de huidige toestand al duurt. Voor "wel files" leiden we dit af uit
-  // de API zelf (oudste actieve file timeStart) — geen opslag nodig, werkt op
-  // signage-platformen die localStorage clearen (zoals Yodeck).
-  let stateStart = null;       // ms-tijdstip waarop de huidige file-toestand begon
+  // ─────────────────────────────────────────────────────────────────────────
+  // PERSISTENTE STATUS-TIMER (overleeft Yodeck slide-reloads)
+  //
+  // SETUP (eenmalig, ~30 sec):
+  //   1. Ga naar  https://www.npoint.io/
+  //   2. Klik op  Create  → je krijgt een unieke URL zoals
+  //      https://api.npoint.io/abc123def456789
+  //   3. Plak die URL hieronder in STATE_BIN_URL
+  //   4. Klaar. Gratis, geen account, blijft permanent live.
+  //
+  // Zonder URL valt de timer terug op session-only (reset bij elke reload).
+  // ─────────────────────────────────────────────────────────────────────────
+  const STATE_BIN_URL = 'https://api.npoint.io/82962f9edfdeb5c78e45';
+
+  let stateStart = null;       // ms-tijdstip waarop de huidige toestand begon
   let stateHasFiles = null;    // null = nog onbekend, true/false = huidige status
+
+  async function loadRemoteState() {
+    if (!STATE_BIN_URL) return;
+    try {
+      const res = await fetch(STATE_BIN_URL + '?_=' + Date.now(), { cache: 'no-store' });
+      if (!res.ok) return;
+      const obj = await res.json();
+      if (typeof obj.since === 'number' && typeof obj.hasFiles === 'boolean') {
+        stateStart = obj.since;
+        stateHasFiles = obj.hasFiles;
+      }
+    } catch (e) {
+      console.warn('Kon state niet laden:', e);
+    }
+  }
+
+  async function saveRemoteState() {
+    if (!STATE_BIN_URL) return;
+    try {
+      await fetch(STATE_BIN_URL, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ since: stateStart, hasFiles: stateHasFiles })
+      });
+    } catch (e) {
+      console.warn('Kon state niet opslaan:', e);
+    }
+  }
 
   function escapeHtml(s) {
     if (s == null) return '';
@@ -557,35 +596,30 @@
   }
 
   function renderTimer() {
-    if (stateHasFiles === null) {
+    if (stateHasFiles === null || stateStart === null) {
       elTimer.style.visibility = 'hidden';
       return;
     }
     elTimer.style.visibility = 'visible';
-    if (stateHasFiles && stateStart !== null) {
+    const dur = formatDuration(Date.now() - stateStart);
+    if (stateHasFiles) {
       elTimer.classList.add('has-files');
-      const dur = formatDuration(Date.now() - stateStart);
       elTimerText.textContent = 'Al ' + dur + ' files';
     } else {
       elTimer.classList.remove('has-files');
-      elTimerText.textContent = 'Momenteel geen files';
+      elTimerText.textContent = 'Al ' + dur + ' geen files';
     }
   }
 
-  // files = array met objecten die o.a. een rwsTimeStart bevatten (ISO of ms)
+  // Detecteer transitie wel-files <-> geen-files. Bij transitie: nieuwe starttijd opslaan.
+  // Bij dezelfde toestand: starttijd intact laten (zo blijft de teller doortikken ook al
+  // verandert de samenstelling van actieve files).
   function updateStateTimer(files) {
-    if (files.length > 0) {
-      // Pak de oudste actieve file: dat is de file die het langst loopt → "files al sinds X"
-      let earliest = Infinity;
-      for (const f of files) {
-        const t = f.startMs;
-        if (typeof t === 'number' && !isNaN(t) && t < earliest) earliest = t;
-      }
-      stateHasFiles = true;
-      stateStart = (earliest === Infinity) ? Date.now() : earliest;
-    } else {
-      stateHasFiles = false;
-      stateStart = null;
+    const hasFiles = files.length > 0;
+    if (stateHasFiles !== hasFiles) {
+      stateHasFiles = hasFiles;
+      stateStart = Date.now();
+      saveRemoteState();  // fire-and-forget, async
     }
     renderTimer();
   }
@@ -715,14 +749,12 @@
       obstructions.forEach(o => {
         const { from, to } = splitDirection(o.directionText);
         if (o.obstructionType === TYPE_JAM) {
-          const startMs = o.timeStart ? Date.parse(o.timeStart) : NaN;
           allFiles.push({
             road: o.roadNumber || '',
             from, to,
             reason: o.cause || o.title || '',
             delay: o.delay || 0,      // minuten (float)
-            length: o.length || 0,    // meters
-            startMs: isNaN(startMs) ? null : startMs
+            length: o.length || 0     // meters
           });
         } else if (o.obstructionType === TYPE_ROADWORK) {
           allWorks.push({
@@ -758,10 +790,15 @@
     }
   }
 
-  fetchData();
-  setInterval(fetchData, REFRESH_MS);
-  // Timer-tekst elke 20s verversen zodat de "X minuten" ook tussen API-calls door bijwerkt
-  setInterval(renderTimer, 20 * 1000);
+  // Eerst opgeslagen toestand ophalen, dan pas data laden.
+  (async function init() {
+    await loadRemoteState();
+    renderTimer();              // toon meteen vorige toestand als die er is
+    fetchData();
+    setInterval(fetchData, REFRESH_MS);
+    // Timer-tekst elke 20s verversen zodat "X minuten" ook tussen API-calls door bijwerkt
+    setInterval(renderTimer, 20 * 1000);
+  })();
 })();
 </script>
 </body>
