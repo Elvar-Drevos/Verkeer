@@ -466,10 +466,11 @@
     const bucket = Math.floor(Date.now() / 30000);
     return TARGET_BASE + '?_=' + bucket;
   }
-  // Codetabs/corsproxy cachen niet of licht; allorigins cachet zwaar (stale-while-revalidate 24u) dus als laatste.
+  // Codetabs is primair (snel, geen cache, ondersteunt simple GET).
+  // Allorigins als fallback (zwaarder gecached, maar werkt als codetabs uitvalt).
+  // Corsproxy.io is uit de lijst gehaald: dat is sinds 2026 een betaalde dienst geworden (403 op free tier).
   const PROXIES = [
     u => 'https://api.codetabs.com/v1/proxy/?quest=' + u,
-    u => 'https://corsproxy.io/?url=' + encodeURIComponent(u),
     u => 'https://api.allorigins.win/raw?url=' + encodeURIComponent(u)
   ];
   const FETCH_TIMEOUT_MS = 8000;
@@ -714,11 +715,11 @@
   }
 
   async function fetchOne(url, signal) {
-    const res = await fetch(url, {
-      cache: 'no-store',
-      signal,
-      headers: { 'Cache-Control': 'no-cache', 'Pragma': 'no-cache' }
-    });
+    // Belangrijk: GEEN custom headers (zoals Cache-Control / Pragma). Die maken de
+    // request "non-simple" → de browser doet eerst een CORS preflight (OPTIONS), en
+    // diverse gratis proxies (codetabs!) returnen 400 op die OPTIONS. Resultaat:
+    // niets komt door. Cache-busting doen we via een query-param in de URL.
+    const res = await fetch(url, { cache: 'no-store', signal });
     if (!res.ok) throw new Error('HTTP ' + res.status);
     return await res.json();
   }
